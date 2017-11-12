@@ -2,8 +2,12 @@ import os
 import glob
 import cv2
 import sys, getopt
+import time
 import numpy as np
 import matplotlib.image as mpimg
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC
 
 # Define a function to compute binned color features
 def bin_spatial(img, size=(32, 32)):
@@ -80,6 +84,32 @@ if __name__ == '__main__':
         non_vehicles.append(file)
 
     # Extract features from vehicles and non vehicles dataset
-    print("Extract features from datasets with cspace={}, spatial_size={}, hist_bins={}".format(cspace, spatial_size, hist_bins))
+    print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}".format(cspace, spatial_size, hist_bins))
     vehicles_features = extract_features(vehicles, cspace=cspace, spatial_size=spatial_size, hist_bins=hist_bins)
     non_vehicles_features = extract_features(non_vehicles, cspace=cspace, spatial_size=spatial_size, hist_bins=hist_bins)
+
+    # Create an array stack of feature vectors
+    X = np.vstack((vehicles_features, non_vehicles_features)).astype(np.float64)
+    # Standardize features by removing the mean and scaling to unit variance
+    scaler = StandardScaler()
+    scaler.fit(X)
+    X_scaled = scaler.transform(X)
+    # Define the labels vector
+    y = np.hstack((np.ones(len(vehicles)), np.zeros(len(non_vehicles))))
+    # Split up data into randomized training and test sets
+    rand_state = np.random.randint(0, 100)
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=rand_state)
+    # Use a linear SVC as classifier
+    clf = SVC()
+    t = time.time()
+    clf.fit(X_train, y_train)
+    t2 = time.time()
+    print("{0:.2f} seconds to train SVC".format(t2-t))
+    print("Test Accuracy of SVC = {0:.3f}".format(clf.score(X_test, y_test)))
+    # Check the prediction time for a single sample
+    t = time.time()
+    n_predict = 10
+    print("My SVC predictions: ", clf.predict(X_test[:n_predict]))
+    print("The right labels: ", y_test[:n_predict])
+    t2 = time.time()
+    print("{0:.2f} seconds to predict {1:} samples".format(t2-t, n_predict))
