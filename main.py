@@ -78,6 +78,45 @@ def extract_features(imgs, cspace='RGB', spatial_size=32, hist_bins=32, hist_ran
     # Return list of feature vectors
     return features
 
+# Define a function that takes an image,
+# start and stop positions in both x and y,
+# window size (x and y dimensions),
+# and overlap fraction (for both x and y)
+def sliding_windows(img, x_start_stop=[None, None], y_start_stop=[None, None], xy_window=(64, 64), xy_overlap=(0.5, 0.5)):
+    # If x and/or y start/stop positions not defined, set to image size
+    if x_start_stop[0] is None:
+        x_start_stop[0] = 0
+    if x_start_stop[1] is None:
+        x_start_stop[1] = img.shape[1]
+    if y_start_stop[0] is None:
+        y_start_stop[0] = 0
+    if y_start_stop[1] is None:
+        y_start_stop[1] = img.shape[0]
+    # Compute the span of the region to be searched
+    xspan = x_start_stop[1] - x_start_stop[0]
+    yspan = y_start_stop[1] - y_start_stop[0]
+    # Compute the number of pixels per step in x/y
+    nx_pix_per_step = np.int(xy_window[0]*(1-xy_overlap[0]))
+    ny_pix_per_step = np.int(xy_window[1]*(1-xy_overlap[1]))
+    # Compute the number of windows in x/y
+    nx_buffer = np.int(xy_window[0]*(xy_overlap[0]))
+    ny_buffer = np.int(xy_window[1]*(xy_overlap[1]))
+    nx_windows = np.int((xspan-nx_buffer)/nx_pix_per_step)
+    ny_windows = np.int((xspan-ny_buffer)/ny_pix_per_step)
+    # Loop through finding x and y window positions
+    windows = []
+    for ys in range(ny_windows):
+        for xs in range(nx_windows):
+            # Calculate window position
+            x1 = xs*nx_pix_per_step + x_start_stop[0]
+            y1 = ys*ny_pix_per_step + y_start_stop[0]
+            x2 = x1 + xy_window[0]
+            y2 = y1 + xy_window[1]
+            # Append window position to list
+            windows.append(((x1,y1),(x2,y2)))
+    # Return the list of windows
+    return windows
+
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Detect vehicles on images/videos', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -99,7 +138,7 @@ if __name__ == '__main__':
         non_vehicles.append(file)
 
     # Extract features from vehicles and non vehicles dataset
-    print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
+    print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}\n".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
     vehicles_features = extract_features(vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
     non_vehicles_features = extract_features(non_vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
 
@@ -128,3 +167,14 @@ if __name__ == '__main__':
     print("The right labels: ", y_test[:n_predict])
     t2 = time.time()
     print("{0:.2f} seconds to predict {1:} samples".format(t2-t, n_predict))
+
+    for file in glob.glob('test_images/*.jpg'):
+        # Read image
+        print("Finding vehicles on {}".format(file))
+        img = mpimg.imread(file)
+        # Retrieve sliding windows from image
+        windows = sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, None], xy_window=(64,64), xy_overlap=(0.5,0.5))
+        # Search for car in windows using our classifier
+        # TODO
+        # Draw bounding boxes around detected cars
+        # TODO
