@@ -5,6 +5,7 @@ import argparse
 import time
 import numpy as np
 import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.svm import SVC
@@ -102,7 +103,7 @@ def sliding_windows(img, x_start_stop=[None, None], y_start_stop=[None, None], x
     nx_buffer = np.int(xy_window[0]*(xy_overlap[0]))
     ny_buffer = np.int(xy_window[1]*(xy_overlap[1]))
     nx_windows = np.int((xspan-nx_buffer)/nx_pix_per_step)
-    ny_windows = np.int((xspan-ny_buffer)/ny_pix_per_step)
+    ny_windows = np.int((yspan-ny_buffer)/ny_pix_per_step)
     # Loop through finding x and y window positions
     windows = []
     for ys in range(ny_windows):
@@ -116,6 +117,12 @@ def sliding_windows(img, x_start_stop=[None, None], y_start_stop=[None, None], x
             windows.append(((x1,y1),(x2,y2)))
     # Return the list of windows
     return windows
+
+def draw_boxes(img, bboxes, color=(0,0,255), thick=6):
+    box_img = np.copy(img)
+    for box in bboxes:
+        box_img = cv2.rectangle(img, box[0], box[1], color, thick)
+    return box_img
 
 if __name__ == '__main__':
     # Parse command line arguments
@@ -173,8 +180,10 @@ if __name__ == '__main__':
         print("Finding vehicles on {}".format(file))
         img = mpimg.imread(file)
         # Retrieve sliding windows from image
-        windows = sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, None], xy_window=(64,64), xy_overlap=(0.5,0.5))
+        windows = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,None], xy_window=(128,128), xy_overlap=(0.5,0.5))
         # Search for car in windows using our classifier
         # TODO
         # Draw bounding boxes around detected cars
-        # TODO
+        vehicles_img = draw_boxes(img, windows)
+        plt.imshow(vehicles_img)
+        plt.show()
