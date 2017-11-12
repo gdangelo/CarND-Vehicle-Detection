@@ -1,7 +1,7 @@
 import os
 import glob
 import cv2
-import sys, getopt
+import argparse
 import time
 import numpy as np
 import matplotlib.image as mpimg
@@ -80,36 +80,15 @@ def extract_features(imgs, cspace='RGB', spatial_size=32, hist_bins=32, hist_ran
 
 if __name__ == '__main__':
     # Parse command line arguments
-    cspace = 'RGB'
-    spatial_size=32
-    hist_bins=32
-    orient=9
-    pixels_per_cell=8
-    cells_per_block=2
-    hog_channel=0
-    try:
-        opts, args = getopt.getopt(sys.argv[1:], "", ["cspace=", "spatial_size=", "hist_bins=", "orient=", "pixels_per_cell=", "cells_per_block=", "hog_channel="])
-    except getopt.GetoptError:
-        print('main.py --cspace <cspace> --spatial_size <spatial_size> --hist_bins <hist_bins>')
-        sys.exit(2)
-    for opt, arg in opts:
-        if opt == '-h':
-            print('main.py --cspace <cspace> --spatial_size <spatial_size> --hist_bins <hist_bins>')
-            sys.exit()
-        elif opt in ("--cspace"):
-            cspace = arg
-        elif opt in ("--spatial_size"):
-            spatial_size = int(arg)
-        elif opt in ("--hist_bins"):
-            hist_bins = int(arg)
-        elif opt in ("--orient"):
-            orient = int(arg)
-        elif opt in ("--pixels_per_cell"):
-            pixels_per_cell = int(arg)
-        elif opt in ("--cells_per_block"):
-            cells_per_block = int(arg)
-        elif opt in ("--hog_channel"):
-            hog_channel = int(arg)
+    parser = argparse.ArgumentParser(description='Detect vehicles on images/videos', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--cspace', default='RGB', help='color space used to convert input image.')
+    parser.add_argument('--spatial_size', default=32, type=int, help='size used to resize input image.')
+    parser.add_argument('--hist_bins', default=32, type=int, help='number of bins used for retrieve histograms of input image.')
+    parser.add_argument('--orient', default=9, type=int, help='orientation for HOG.')
+    parser.add_argument('--pixels_per_cell', default=8, type=int, help='number of pixels per cell for HOG.')
+    parser.add_argument('--cells_per_block', default=2, type=int, help='number of cells per block for HOG.')
+    parser.add_argument('--hog_channel', default=0, type=int, choices=[0, 1, 2, -1], help='channels to use for HOG. -1 means all channels.')
+    args = parser.parse_args()
 
     # Read in car and non-car images
     vehicles = []
@@ -120,9 +99,9 @@ if __name__ == '__main__':
         non_vehicles.append(file)
 
     # Extract features from vehicles and non vehicles dataset
-    print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}".format(cspace, spatial_size, hist_bins, orient, pixels_per_cell, cells_per_block, hog_channel))
-    vehicles_features = extract_features(vehicles, cspace=cspace, spatial_size=spatial_size, hist_bins=hist_bins, orient=orient, pixels_per_cell=pixels_per_cell, cells_per_block=cells_per_block, hog_channel=hog_channel)
-    non_vehicles_features = extract_features(non_vehicles, cspace=cspace, spatial_size=spatial_size, hist_bins=hist_bins, orient=orient, pixels_per_cell=pixels_per_cell, cells_per_block=cells_per_block, hog_channel=hog_channel)
+    print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
+    vehicles_features = extract_features(vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
+    non_vehicles_features = extract_features(non_vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
 
     # Create an array stack of feature vectors
     X = np.vstack((vehicles_features, non_vehicles_features)).astype(np.float64)
