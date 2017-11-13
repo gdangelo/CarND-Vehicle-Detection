@@ -40,7 +40,7 @@ def get_hog_features(img, orient=9, pixels_per_cell=(8,8), cells_per_block=(2,2)
 
 # Define a function to extract features from a list of images
 # Have this function call bin_spatial() and color_hist()
-def extract_features(imgs, cspace='RGB', spatial_size=32, hist_bins=32, hist_range=(0, 256), orient=9, pixels_per_cell=8, cells_per_block=2, hog_channel=0):
+def extract_features(imgs, cspace='RGB', spatial_size=32, hist_bins=32, hist_range=(0, 256), orient=9, pixels_per_cell=8, cells_per_block=2, hog_channel=-1):
     # Create a list to append feature vectors to
     features = []
     # Iterate through the list of images
@@ -146,7 +146,7 @@ def draw_labeled_bboxes(img, labels):
 
 # Define a function you will pass an image
 # and the list of windows to be searched (output of slide_windows())
-def search_vehicles_in_windows(img, windows, scaler, clf, cspace='RGB', spatial_size=32, hist_bins=32, orient=9, pixels_per_cell=8, cells_per_block=2, hog_channel=0):
+def search_vehicles_in_windows(img, windows, scaler, clf, cspace='RGB', spatial_size=32, hist_bins=32, orient=9, pixels_per_cell=8, cells_per_block=2, hog_channel=-1):
     hot_windows = []
     # Iterate throug each window
     for window in windows:
@@ -162,6 +162,91 @@ def search_vehicles_in_windows(img, windows, scaler, clf, cspace='RGB', spatial_
             hot_windows.append(window)
     # Return windows list containing detected vehicles
     return hot_windows
+
+# Define a single function that can extract features using hog sub-sampling and make predictions
+def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, cell_per_block=2, spatial_size=32, hist_bins=32, cspace='RGB', hog_channel=-1):
+
+    # Array of bounding boxes where cars were detected
+    bboxes = []
+
+    draw_img = np.copy(img)
+    img = img.astype(np.float32)/255
+
+    img_tosearch = img[ystart:ystop,:,:]
+    # Apply color conversion if other than 'RGB'
+    if cspace == 'HSV':
+        ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2HSV)
+    elif cspace == 'HSL':
+        ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2HSL)
+    elif cspace == 'YUV':
+        ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2YUV)
+    elif cspace == 'LUV':
+        ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2LUV)
+    elif cspace == 'YCrCb':
+        ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2YCrCb)
+    else:
+        ctrans_tosearch = np.copy(img_tosearch)
+
+    if scale != 1:
+        imshape = ctrans_tosearch.shape
+        ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1]/scale), np.int(imshape[0]/scale)))
+
+    if hog_channel == -1:
+        ch1 = ctrans_tosearch[:,:,0]
+        ch2 = ctrans_tosearch[:,:,1]
+        ch3 = ctrans_tosearch[:,:,2]
+    else:
+        ch1 = ctrans_tosearch[:,:,hog_channel]
+
+    # Define blocks and steps as above
+    nxblocks = (ch1.shape[1] // pix_per_cell) - cell_per_block + 1
+    nyblocks = (ch1.shape[0] // pix_per_cell) - cell_per_block + 1
+    nfeat_per_block = orient*cell_per_block**2
+
+    # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
+    window = 64
+    nblocks_per_window = (window // pix_per_cell) - cell_per_block + 1
+    cells_per_step = 2  # Instead of overlap, define how many cells to step
+    nxsteps = (nxblocks - nblocks_per_window) // cells_per_step
+    nysteps = (nyblocks - nblocks_per_window) // cells_per_step
+
+    # Compute individual channel HOG features for the entire image
+    hog1 = get_hog_features(ch1, orient, pix_per_cell, cell_per_block, feature_vec=False)
+    if hog_channel == -1:
+        hog2 = get_hog_features(ch2, orient, pix_per_cell, cell_per_block, feature_vec=False)
+        hog3 = get_hog_features(ch3, orient, pix_per_cell, cell_per_block, feature_vec=False)
+
+    for xb in range(nxsteps):
+        for yb in range(nysteps):
+            ypos = yb*cells_per_step
+            xpos = xb*cells_per_step
+            # Extract HOG for this patch
+            hog_feat1 = hog1[ypos:ypos+nblocks_per_window, xpos:xpos+nblocks_per_window].ravel()
+            hog_feat2 = hog2[ypos:ypos+nblocks_per_window, xpos:xpos+nblocks_per_window].ravel()
+            hog_feat3 = hog3[ypos:ypos+nblocks_per_window, xpos:xpos+nblocks_per_window].ravel()
+            hog_features = np.hstack((hog_feat1, hog_feat2, hog_feat3))
+
+            xleft = xpos*pix_per_cell
+            ytop = ypos*pix_per_cell
+
+            # Extract the image patch
+            subimg = cv2.resize(ctrans_tosearch[ytop:ytop+window, xleft:xleft+window], (64,64))
+
+            # Get color features
+            spatial_features = bin_spatial(subimg, size=spatial_size)
+            hist_features = color_hist(subimg, nbins=hist_bins)
+
+            # Scale features and make a prediction
+            test_features = scaler.transform(np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1))
+            test_prediction = clf.predict(test_features)
+
+            if test_prediction == 1:
+                xbox_left = np.int(xleft*scale)
+                ytop_draw = np.int(ytop*scale)
+                win_draw = np.int(window*scale)
+                bboxes.append(((xbox_left, ytop_draw+ystart),(xbox_left+win_draw,ytop_draw+win_draw+ystart)))
+
+    return bboxes
 
 def add_heat(heatmap, bbox_list):
     # Iterate through list of bboxes
@@ -253,47 +338,27 @@ if __name__ == '__main__':
         print("Finding vehicles on {}".format(file))
         img = mpimg.imread(file)
 
-        # Uncomment the following line if you extracted training
-        # data from .png images (scaled 0 to 1 by mpimg) and the
-        # image you are searching is a .jpg (scaled 0 to 255)
-        img = img.astype(np.float32)/255
-
         # Retrieve sliding windows from image (and save it)
         windows = []
         sub_directory = file.split('/')[-1].split('.')[0]
 
-        windows_small = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,500], xy_window=(64,64), xy_overlap=(0.5,0.6))
-        windows.append(windows_small)
-        save_figure(draw_boxes(img, windows_small, color='random'), './output_images/'+sub_directory, 'small_windows.jpg')
-
-        windows_medium = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,530], xy_window=(80,80), xy_overlap=(0.5,0.6))
-        windows.append(windows_medium)
-        save_figure(draw_boxes(img, windows_medium, color='random'), './output_images/'+sub_directory, 'medium_windows.jpg')
-
-        windows_large = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,580], xy_window=(128,128), xy_overlap=(0.5,0.6))
-        windows.append(windows_large)
-        save_figure(draw_boxes(img, windows_large, color='random'), './output_images/'+sub_directory, 'large_windows.jpg')
-
-        windows_x_large = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,660], xy_window=(160,160), xy_overlap=(0.5,0.4))
-        windows.append(windows_x_large)
-        save_figure(draw_boxes(img, windows_x_large, color='random'), './output_images/'+sub_directory, 'x_large_windows.jpg')
+        windows.append(find_cars(img, 400, 656, 1.0, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
 
         windows = [item for sublist in windows for item in sublist]
 
-        # Search for car in windows using our classifier
-        hot_windows = search_vehicles_in_windows(img, windows, scaler, clf, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
-
         # Build a heat map from the detected boxes
         heat = np.zeros_like(img[:,:,0]).astype(np.float)
-        heat = add_heat(heat, hot_windows)
+        heat = add_heat(heat, windows)
 
         # Apply threshold to help remove false positives
-        heat = apply_threshold(heat, 3)
+        heat = apply_threshold(heat, 1)
         heatmap = np.clip(heat, 0, 255) # clip values from 0 to 255
 
         # Find final boxes from heatmap using label function
         labels = label(heatmap)
         result = draw_labeled_bboxes(np.copy(img), labels)
+
+        # Display detected boxes and heatmap
         fig = plt.figure()
         plt.subplot(121)
         plt.imshow(result)
