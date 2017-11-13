@@ -11,6 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.svm import SVC
 from sklearn.externals import joblib
 from skimage.feature import hog
+from scipy.ndimage.measurements import label
 
 # Define a function to compute binned color features
 def bin_spatial(img, size=32):
@@ -128,6 +129,21 @@ def draw_boxes(img, bboxes, color=(0,0,255), thick=2):
         box_img = cv2.rectangle(box_img, box[0], box[1], color, thick)
     return box_img
 
+def draw_labeled_bboxes(img, labels):
+    # Iterate through all detected cars
+    for car_number in range(1, labels[1]+1):
+        # Find pixels with each car_number label value
+        nonzero = (labels[0] == car_number).nonzero()
+        # Identify x and y values of those pixels
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        # Define a bounding box based on min/max x and y
+        bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
+        # Draw the box on the image
+        cv2.rectangle(img, bbox[0], bbox[1], (0,0,255), 6)
+    # Return the image
+    return img
+
 # Define a function you will pass an image
 # and the list of windows to be searched (output of slide_windows())
 def search_vehicles_in_windows(img, windows, scaler, clf, cspace='RGB', spatial_size=32, hist_bins=32, orient=9, pixels_per_cell=8, cells_per_block=2, hog_channel=0):
@@ -146,6 +162,21 @@ def search_vehicles_in_windows(img, windows, scaler, clf, cspace='RGB', spatial_
             hot_windows.append(window)
     # Return windows list containing detected vehicles
     return hot_windows
+
+def add_heat(heatmap, bbox_list):
+    # Iterate through list of bboxes
+    for box in bbox_list:
+        # Add += 1 for all pixels inside each bbox
+        # Assuming each "box" takes the form ((x1, y1), (x2, y2))
+        heatmap[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
+    # Return updated heatmap
+    return heatmap
+
+def apply_threshold(heatmap, threshold):
+    # Zero out pixels below the threshold
+    heatmap[heatmap <= threshold] = 0
+    # Return thresholded map
+    return heatmap
 
 def save_figure(img, path, name):
     # Create output directory if doesn't exist
@@ -173,7 +204,6 @@ if __name__ == '__main__':
         print('Load classifier from disk...')
         clf = joblib.load('classifier.pkl')
         scaler = joblib.load('scaler.pkl')
-        params
     else:
         # Read in car and non-car images
         print("Read files in vehicles and non vehicles datasets...")
@@ -253,6 +283,23 @@ if __name__ == '__main__':
         # Search for car in windows using our classifier
         hot_windows = search_vehicles_in_windows(img, windows, scaler, clf, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
 
-        # Draw bounding boxes around detected cars
-        result = draw_boxes(img, hot_windows)
-        save_figure(result, './output_images/'+sub_directory, 'result.jpg')
+        # Build a heat map from the detected boxes
+        heat = np.zeros_like(img[:,:,0]).astype(np.float)
+        heat = add_heat(heat, hot_windows)
+
+        # Apply threshold to help remove false positives
+        heat = apply_threshold(heat, 3)
+        heatmap = np.clip(heat, 0, 255) # clip values from 0 to 255
+
+        # Find final boxes from heatmap using label function
+        labels = label(heatmap)
+        result = draw_labeled_bboxes(np.copy(img), labels)
+        fig = plt.figure()
+        plt.subplot(121)
+        plt.imshow(result)
+        plt.title('Car Positions')
+        plt.subplot(122)
+        plt.imshow(heatmap, cmap='hot')
+        plt.title('Heat Map')
+        fig.tight_layout()
+        plt.savefig('./output_images/'+sub_directory+'/result.jpg')
