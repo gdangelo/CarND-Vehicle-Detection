@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.svm import SVC
+from sklearn.externals import joblib
 from skimage.feature import hog
 
 # Define a function to compute binned color features
@@ -117,10 +118,14 @@ def sliding_windows(img, x_start_stop=[None, None], y_start_stop=[None, None], x
     return windows
 
 # Define a function to draw bounding boxes
-def draw_boxes(img, bboxes, color=(0,0,255), thick=6):
+def draw_boxes(img, bboxes, color=(0,0,255), thick=2):
     box_img = np.copy(img)
+    choose_random_color = False
     for box in bboxes:
-        box_img = cv2.rectangle(img, box[0], box[1], color, thick)
+        if color == 'random' or choose_random_color:
+            choose_random_color = True
+            color = (np.random.randint(0,255), np.random.randint(0,255), np.random.randint(0,255))
+        box_img = cv2.rectangle(box_img, box[0], box[1], color, thick)
     return box_img
 
 # Define a function you will pass an image
@@ -142,6 +147,15 @@ def search_vehicles_in_windows(img, windows, scaler, clf, cspace='RGB', spatial_
     # Return windows list containing detected vehicles
     return hot_windows
 
+def save_figure(img, path, name):
+    # Create output directory if doesn't exist
+    if not os.path.exists(path):
+        os.makedirs(path)
+    # Save image
+    plt.clf()
+    plt.imshow(img)
+    plt.savefig(path+'/'+name)
+
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Detect vehicles on images/videos', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -154,60 +168,91 @@ if __name__ == '__main__':
     parser.add_argument('--hog_channel', default=-1, type=int, choices=[0, 1, 2, -1], help='channels to use for HOG. -1 means all channels.')
     args = parser.parse_args()
 
-    # Read in car and non-car images
-    print("Read files in vehicles and non vehicles datasets...")
-    vehicles = []
-    non_vehicles = []
-    for file in glob.glob('vehicles/**/*.png'):
-        vehicles.append(mpimg.imread(file))
-    for file in glob.glob('non-vehicles/**/*.png'):
-        non_vehicles.append(mpimg.imread(file))
+    if os.path.exists('classifier.pkl') and os.path.exists('scaler.pkl'):
+        # Retrieve the saved model that has already been trained
+        print('Load classifier from disk...')
+        clf = joblib.load('classifier.pkl')
+        scaler = joblib.load('scaler.pkl')
+        params
+    else:
+        # Read in car and non-car images
+        print("Read files in vehicles and non vehicles datasets...")
+        vehicles = []
+        non_vehicles = []
+        for file in glob.glob('vehicles/**/*.png'):
+            vehicles.append(mpimg.imread(file))
+        for file in glob.glob('non-vehicles/**/*.png'):
+            non_vehicles.append(mpimg.imread(file))
 
-    # Extract features from vehicles and non vehicles dataset
-    print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}\n".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
-    vehicles_features = extract_features(vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
-    non_vehicles_features = extract_features(non_vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
+        # Extract features from vehicles and non vehicles dataset
+        print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}\n".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
+        vehicles_features = extract_features(vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
+        non_vehicles_features = extract_features(non_vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
 
-    # Create an array stack of feature vectors
-    X = np.vstack((vehicles_features, non_vehicles_features)).astype(np.float64)
-    # Standardize features by removing the mean and scaling to unit variance
-    scaler = StandardScaler()
-    scaler.fit(X)
-    X_scaled = scaler.transform(X)
-    # Define the labels vector
-    y = np.hstack((np.ones(len(vehicles_features)), np.zeros(len(non_vehicles_features))))
-    # Split up data into randomized training and test sets
-    rand_state = np.random.randint(0, 100)
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=rand_state)
-    # Use a linear SVC as classifier
-    clf = SVC()
-    t = time.time()
-    clf.fit(X_train, y_train)
-    t2 = time.time()
-    print("{0:.2f} seconds to train SVC".format(t2-t))
-    print("Test Accuracy of SVC = {0:.3f}".format(clf.score(X_test, y_test)))
-    # Check the prediction time for a single sample
-    t = time.time()
-    n_predict = 10
-    print("My SVC predictions: ", clf.predict(X_test[:n_predict]))
-    print("The right labels: ", y_test[:n_predict])
-    t2 = time.time()
-    print("{0:.2f} seconds to predict {1:} samples\n".format(t2-t, n_predict))
+        # Create an array stack of feature vectors
+        X = np.vstack((vehicles_features, non_vehicles_features)).astype(np.float64)
+        # Standardize features by removing the mean and scaling to unit variance
+        scaler = StandardScaler()
+        scaler.fit(X)
+        joblib.dump(scaler, 'scaler.pkl') # save to reuse it later
+        X_scaled = scaler.transform(X)
+        # Define the labels vector
+        y = np.hstack((np.ones(len(vehicles_features)), np.zeros(len(non_vehicles_features))))
+        # Split up data into randomized training and test sets
+        rand_state = np.random.randint(0, 100)
+        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=rand_state)
+        # Use a linear SVC as classifier
+        clf = SVC()
+        t = time.time()
+        clf.fit(X_train, y_train)
+        joblib.dump(clf, 'classifier.pkl') # save to reuse it later
+        t2 = time.time()
+        print("{0:.2f} seconds to train SVC".format(t2-t))
+        print("Test Accuracy of SVC = {0:.3f}".format(clf.score(X_test, y_test)))
+        # Check the prediction time for a single sample
+        t = time.time()
+        n_predict = 10
+        print("My SVC predictions: ", clf.predict(X_test[:n_predict]))
+        print("The right labels: ", y_test[:n_predict])
+        t2 = time.time()
+        print("{0:.2f} seconds to predict {1:} samples\n".format(t2-t, n_predict))
 
     # Run the pipeline on each test image
     for file in glob.glob('test_images/*.jpg'):
         # Read image
         print("Finding vehicles on {}".format(file))
         img = mpimg.imread(file)
+
         # Uncomment the following line if you extracted training
         # data from .png images (scaled 0 to 1 by mpimg) and the
         # image you are searching is a .jpg (scaled 0 to 255)
         img = img.astype(np.float32)/255
-        # Retrieve sliding windows from image
-        windows = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,None], xy_window=(128,128), xy_overlap=(0.5,0.5))
+
+        # Retrieve sliding windows from image (and save it)
+        windows = []
+        sub_directory = file.split('/')[-1].split('.')[0]
+
+        windows_small = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,500], xy_window=(64,64), xy_overlap=(0.5,0.6))
+        windows.append(windows_small)
+        save_figure(draw_boxes(img, windows_small, color='random'), './output_images/'+sub_directory, 'small_windows.jpg')
+
+        windows_medium = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,530], xy_window=(80,80), xy_overlap=(0.5,0.6))
+        windows.append(windows_medium)
+        save_figure(draw_boxes(img, windows_medium, color='random'), './output_images/'+sub_directory, 'medium_windows.jpg')
+
+        windows_large = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,580], xy_window=(128,128), xy_overlap=(0.5,0.6))
+        windows.append(windows_large)
+        save_figure(draw_boxes(img, windows_large, color='random'), './output_images/'+sub_directory, 'large_windows.jpg')
+
+        windows_x_large = sliding_windows(img, x_start_stop=[None,None], y_start_stop=[400,660], xy_window=(160,160), xy_overlap=(0.5,0.4))
+        windows.append(windows_x_large)
+        save_figure(draw_boxes(img, windows_x_large, color='random'), './output_images/'+sub_directory, 'x_large_windows.jpg')
+
+        windows = [item for sublist in windows for item in sublist]
+
         # Search for car in windows using our classifier
         hot_windows = search_vehicles_in_windows(img, windows, scaler, clf, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
+
         # Draw bounding boxes around detected cars
-        vehicles_img = draw_boxes(img, hot_windows)
-        plt.imshow(vehicles_img)
-        plt.show()
+        result = draw_boxes(img, hot_windows)
+        save_figure(result, './output_images/'+sub_directory, 'result.jpg')
