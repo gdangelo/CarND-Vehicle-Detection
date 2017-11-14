@@ -8,7 +8,7 @@ import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.svm import SVC
+from sklearn.svm import LinearSVC
 from sklearn.externals import joblib
 from skimage.feature import hog
 from scipy.ndimage.measurements import label
@@ -76,6 +76,7 @@ def extract_features(imgs, cspace='RGB', spatial_size=32, hist_bins=32, hist_ran
         file_features.append(hog_features)
         # Append the new feature vector to the features list
         features.append(np.concatenate(file_features))
+
     # Return list of feature vectors
     return features
 
@@ -170,7 +171,7 @@ def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, 
     bboxes = []
 
     draw_img = np.copy(img)
-    img = img.astype(np.float32)/255
+    #img = img.astype(np.float32)/255
 
     img_tosearch = img[ystart:ystop,:,:]
     # Apply color conversion if other than 'RGB'
@@ -222,9 +223,12 @@ def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, 
             xpos = xb*cells_per_step
             # Extract HOG for this patch
             hog_feat1 = hog1[ypos:ypos+nblocks_per_window, xpos:xpos+nblocks_per_window].ravel()
-            hog_feat2 = hog2[ypos:ypos+nblocks_per_window, xpos:xpos+nblocks_per_window].ravel()
-            hog_feat3 = hog3[ypos:ypos+nblocks_per_window, xpos:xpos+nblocks_per_window].ravel()
-            hog_features = np.hstack((hog_feat1, hog_feat2, hog_feat3))
+            if hog_channel == -1:
+                hog_feat2 = hog2[ypos:ypos+nblocks_per_window, xpos:xpos+nblocks_per_window].ravel()
+                hog_feat3 = hog3[ypos:ypos+nblocks_per_window, xpos:xpos+nblocks_per_window].ravel()
+                hog_features = np.hstack((hog_feat1, hog_feat2, hog_feat3))
+            else:
+                hog_features = hog_feat1
 
             xleft = xpos*pix_per_cell
             ytop = ypos*pix_per_cell
@@ -295,9 +299,9 @@ if __name__ == '__main__':
         vehicles = []
         non_vehicles = []
         for file in glob.glob('vehicles/**/*.png'):
-            vehicles.append(mpimg.imread(file))
+            vehicles.append(cv2.cvtColor(cv2.imread(file), cv2.COLOR_BGR2RGB))
         for file in glob.glob('non-vehicles/**/*.png'):
-            non_vehicles.append(mpimg.imread(file))
+            non_vehicles.append(cv2.cvtColor(cv2.imread(file), cv2.COLOR_BGR2RGB))
 
         # Extract features from vehicles and non vehicles dataset
         print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}\n".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
@@ -317,7 +321,7 @@ if __name__ == '__main__':
         rand_state = np.random.randint(0, 100)
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=rand_state)
         # Use a linear SVC as classifier
-        clf = SVC()
+        clf = LinearSVC()
         t = time.time()
         clf.fit(X_train, y_train)
         joblib.dump(clf, 'classifier.pkl') # save to reuse it later
@@ -336,15 +340,19 @@ if __name__ == '__main__':
     for file in glob.glob('test_images/*.jpg'):
         # Read image
         print("Finding vehicles on {}".format(file))
-        img = mpimg.imread(file)
+        img = cv2.cvtColor(cv2.imread(file), cv2.COLOR_BGR2RGB)
 
         # Retrieve sliding windows from image (and save it)
         windows = []
         sub_directory = file.split('/')[-1].split('.')[0]
 
-        windows.append(find_cars(img, 400, 656, 1.0, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 460, 1.0, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 560, 1.5, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 660, 2.0, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
 
         windows = [item for sublist in windows for item in sublist]
+
+        bboxes = draw_boxes(img, windows, color='random')
 
         # Build a heat map from the detected boxes
         heat = np.zeros_like(img[:,:,0]).astype(np.float)
@@ -367,4 +375,4 @@ if __name__ == '__main__':
         plt.imshow(heatmap, cmap='hot')
         plt.title('Heat Map')
         fig.tight_layout()
-        plt.savefig('./output_images/'+sub_directory+'/result.jpg')
+        plt.savefig('./output_images/'+sub_directory+'_result.png')
