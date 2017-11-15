@@ -8,7 +8,7 @@ import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.svm import LinearSVC
+from sklearn.svm import SVC
 from sklearn.externals import joblib
 from skimage.feature import hog
 from scipy.ndimage.measurements import label
@@ -279,11 +279,11 @@ def save_figure(img, path, name):
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Detect vehicles on images/videos', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--cspace', default='RGB', help='color space used to convert input image.')
+    parser.add_argument('--cspace', default='YUV', help='color space used to convert input image.')
     parser.add_argument('--spatial_size', default=32, type=int, help='size used to resize input image.')
     parser.add_argument('--hist_bins', default=32, type=int, help='number of bins used for retrieve histograms of input image.')
-    parser.add_argument('--orient', default=9, type=int, help='orientation for HOG.')
-    parser.add_argument('--pixels_per_cell', default=8, type=int, help='number of pixels per cell for HOG.')
+    parser.add_argument('--orient', default=11, type=int, help='orientation for HOG.')
+    parser.add_argument('--pixels_per_cell', default=16, type=int, help='number of pixels per cell for HOG.')
     parser.add_argument('--cells_per_block', default=2, type=int, help='number of cells per block for HOG.')
     parser.add_argument('--hog_channel', default=-1, type=int, choices=[0, 1, 2, -1], help='channels to use for HOG. -1 means all channels.')
     args = parser.parse_args()
@@ -293,18 +293,22 @@ if __name__ == '__main__':
         print('Load classifier from disk...')
         clf = joblib.load('classifier.pkl')
         scaler = joblib.load('scaler.pkl')
+
     else:
         # Read in car and non-car images
         print("Read files in vehicles and non vehicles datasets...")
         vehicles = []
         non_vehicles = []
-        for file in glob.glob('vehicles/**/*.png'):
+        for file in glob.glob('vehicles/**/*.png', recursive=True):
             vehicles.append(cv2.cvtColor(cv2.imread(file), cv2.COLOR_BGR2RGB))
-        for file in glob.glob('non-vehicles/**/*.png'):
+        for file in glob.glob('non-vehicles/**/*.png', recursive=True):
             non_vehicles.append(cv2.cvtColor(cv2.imread(file), cv2.COLOR_BGR2RGB))
 
+        print("{} car images".format(len(vehicles)))
+        print("{} non-car images".format(len(non_vehicles)))
+
         # Extract features from vehicles and non vehicles dataset
-        print("Extract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}\n".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
+        print("\nExtract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}\n".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
         vehicles_features = extract_features(vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
         non_vehicles_features = extract_features(non_vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
 
@@ -321,7 +325,7 @@ if __name__ == '__main__':
         rand_state = np.random.randint(0, 100)
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=rand_state)
         # Use a linear SVC as classifier
-        clf = LinearSVC()
+        clf = SVC()
         t = time.time()
         clf.fit(X_train, y_train)
         joblib.dump(clf, 'classifier.pkl') # save to reuse it later
@@ -337,22 +341,25 @@ if __name__ == '__main__':
         print("{0:.2f} seconds to predict {1:} samples\n".format(t2-t, n_predict))
 
     # Run the pipeline on each test image
-    for file in glob.glob('test_images/*.jpg'):
+    test_image_dir = './test_images/'
+    output_image_dir = './output_images/'
+    if not os.path.isdir(output_image_dir):
+        os.makedirs(output_image_dir)
+
+    for file in os.listdir(test_image_dir):
         # Read image
         print("Finding vehicles on {}".format(file))
-        img = cv2.cvtColor(cv2.imread(file), cv2.COLOR_BGR2RGB)
+        img = cv2.cvtColor(cv2.imread(test_image_dir + file), cv2.COLOR_BGR2RGB)
 
         # Retrieve sliding windows from image (and save it)
         windows = []
         sub_directory = file.split('/')[-1].split('.')[0]
 
-        windows.append(find_cars(img, 400, 460, 1.0, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
-        windows.append(find_cars(img, 400, 560, 1.5, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
-        windows.append(find_cars(img, 400, 660, 2.0, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
-
+        windows.append(find_cars(img, 400, 500, 1.0, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+ 
         windows = [item for sublist in windows for item in sublist]
 
-        bboxes = draw_boxes(img, windows, color='random')
+        img_bboxes = draw_boxes(img, windows, color='random')
 
         # Build a heat map from the detected boxes
         heat = np.zeros_like(img[:,:,0]).astype(np.float)
@@ -367,12 +374,10 @@ if __name__ == '__main__':
         result = draw_labeled_bboxes(np.copy(img), labels)
 
         # Display detected boxes and heatmap
-        fig = plt.figure()
-        plt.subplot(121)
+        plt.axis('off')
+        plt.imshow(img_bboxes)
+        plt.savefig(output_image_dir+file.split('.')[0]+'_detected_windows.png')
         plt.imshow(result)
-        plt.title('Car Positions')
-        plt.subplot(122)
+        plt.savefig(output_image_dir+file.split('.')[0]+'_car_position.png')
         plt.imshow(heatmap, cmap='hot')
-        plt.title('Heat Map')
-        fig.tight_layout()
-        plt.savefig('./output_images/'+sub_directory+'_result.png')
+        plt.savefig(output_image_dir+file.split('.')[0]+'_heatmap.png')
