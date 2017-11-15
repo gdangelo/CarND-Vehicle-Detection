@@ -16,8 +16,10 @@ from scipy.ndimage.measurements import label
 # Define a function to compute binned color features
 def bin_spatial(img, size=32):
     # Resize the image and use ravel() to flat the array
-    features = cv2.resize(img, (size,size)).ravel()
-    return features
+    color1 = cv2.resize(img[:,:,0], (size,size)).ravel()
+    color2 = cv2.resize(img[:,:,1], (size,size)).ravel()
+    color3 = cv2.resize(img[:,:,2], (size,size)).ravel()
+    return np.hstack((color1, color2, color3))
 
 # Define a function to compute color histogram features
 def color_hist(img, nbins=32, bins_range=(0, 256)):
@@ -174,6 +176,7 @@ def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, 
     #img = img.astype(np.float32)/255
 
     img_tosearch = img[ystart:ystop,:,:]
+    
     # Apply color conversion if other than 'RGB'
     if cspace == 'HSV':
         ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2HSV)
@@ -243,6 +246,7 @@ def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, 
             # Scale features and make a prediction
             test_features = scaler.transform(np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1))
             test_prediction = clf.predict(test_features)
+            test_confidence = clf.decision_function(test_features)
 
             if test_prediction == 1:
                 xbox_left = np.int(xleft*scale)
@@ -279,11 +283,11 @@ def save_figure(img, path, name):
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Detect vehicles on images/videos', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--cspace', default='YUV', help='color space used to convert input image.')
+    parser.add_argument('--cspace', default='YCrCb', help='color space used to convert input image.')
     parser.add_argument('--spatial_size', default=32, type=int, help='size used to resize input image.')
     parser.add_argument('--hist_bins', default=32, type=int, help='number of bins used for retrieve histograms of input image.')
-    parser.add_argument('--orient', default=11, type=int, help='orientation for HOG.')
-    parser.add_argument('--pixels_per_cell', default=16, type=int, help='number of pixels per cell for HOG.')
+    parser.add_argument('--orient', default=9, type=int, help='orientation for HOG.')
+    parser.add_argument('--pixels_per_cell', default=8, type=int, help='number of pixels per cell for HOG.')
     parser.add_argument('--cells_per_block', default=2, type=int, help='number of cells per block for HOG.')
     parser.add_argument('--hog_channel', default=-1, type=int, choices=[0, 1, 2, -1], help='channels to use for HOG. -1 means all channels.')
     args = parser.parse_args()
@@ -351,12 +355,10 @@ if __name__ == '__main__':
         print("Finding vehicles on {}".format(file))
         img = cv2.cvtColor(cv2.imread(test_image_dir + file), cv2.COLOR_BGR2RGB)
 
-        # Retrieve sliding windows from image (and save it)
+        # Retrieve windows where cars have been detected
         windows = []
-        sub_directory = file.split('/')[-1].split('.')[0]
+        windows.append(find_cars(img, 400, 656, 1.5, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
 
-        windows.append(find_cars(img, 400, 500, 1.0, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
- 
         windows = [item for sublist in windows for item in sublist]
 
         img_bboxes = draw_boxes(img, windows, color='random')
