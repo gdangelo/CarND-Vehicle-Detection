@@ -176,7 +176,7 @@ def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, 
     #img = img.astype(np.float32)/255
 
     img_tosearch = img[ystart:ystop,:,:]
-    
+
     # Apply color conversion if other than 'RGB'
     if cspace == 'HSV':
         ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2HSV)
@@ -357,15 +357,18 @@ if __name__ == '__main__':
 
         # Retrieve windows where cars have been detected
         windows = []
-        windows.append(find_cars(img, 400, 656, 1.5, clf, scaler, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
-
+        windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, 640], xy_window=(128, 128), xy_overlap=(0.5, 0.5)))
+        windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, 600], xy_window=(96, 96), xy_overlap=(0.5, 0.5)))
+        windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[390, 540], xy_window=(80, 80), xy_overlap=(0.5, 0.5)))
         windows = [item for sublist in windows for item in sublist]
 
-        img_bboxes = draw_boxes(img, windows, color='random')
+        hot_windows = search_vehicles_in_windows(img, windows, scaler, clf, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
+
+        img_bboxes = draw_boxes(img, hot_windows, color='random')
 
         # Build a heat map from the detected boxes
         heat = np.zeros_like(img[:,:,0]).astype(np.float)
-        heat = add_heat(heat, windows)
+        heat = add_heat(heat, hot_windows)
 
         # Apply threshold to help remove false positives
         heat = apply_threshold(heat, 1)
@@ -378,8 +381,8 @@ if __name__ == '__main__':
         # Display detected boxes and heatmap
         plt.axis('off')
         plt.imshow(img_bboxes)
-        plt.savefig(output_image_dir+file.split('.')[0]+'_detected_windows.png')
+        plt.savefig(output_image_dir+file.split('.')[0]+'_detected_windows.jpg')
         plt.imshow(result)
-        plt.savefig(output_image_dir+file.split('.')[0]+'_car_position.png')
+        plt.savefig(output_image_dir+file.split('.')[0]+'_car_position.jpg')
         plt.imshow(heatmap, cmap='hot')
-        plt.savefig(output_image_dir+file.split('.')[0]+'_heatmap.png')
+        plt.savefig(output_image_dir+file.split('.')[0]+'_heatmap.jpg')
