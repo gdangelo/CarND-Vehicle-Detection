@@ -268,7 +268,7 @@ def add_heat(heatmap, bbox_list):
 
 def apply_threshold(heatmap, threshold):
     # Zero out pixels below the threshold
-    heatmap[heatmap <= threshold] = 0
+    heatmap[heatmap < threshold] = 0
     # Return thresholded map
     return heatmap
 
@@ -381,9 +381,9 @@ if __name__ == '__main__':
 
         # Retrieve windows where cars have been detected
         windows = []
-        windows.append(find_cars(img, 400, 460, 0.5, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
-        windows.append(find_cars(img, 400, 560, 1.5, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
-        windows.append(find_cars(img, 400, 600, 2.0, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 480, 0.5, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 560, 1.0, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 660, 2.0, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
         windows = [item for sublist in windows for item in sublist]
 
         img_bboxes = draw_boxes(img, windows, color='random')
@@ -393,7 +393,7 @@ if __name__ == '__main__':
         heat = add_heat(heat, windows)
 
         # Apply threshold to help remove false positives
-        heat = apply_threshold(heat, 1)
+        heat = apply_threshold(heat, 2)
         heatmap = np.clip(heat, 0, 255) # clip values from 0 to 255
 
         # Find final boxes from heatmap using label function
