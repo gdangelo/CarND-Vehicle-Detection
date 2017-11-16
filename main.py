@@ -71,11 +71,11 @@ def extract_features(imgs, cspace='RGB', spatial_size=32, hist_bins=32, hist_ran
         # Call get_hog_features() with vis=False, feature_vec=True
         if hog_channel == -1: # means all channels
             hog_features = []
-            for channel in range(img.shape[-1]):
-                hog_features.append(get_hog_features(img[:,:,channel], orient, pixels_per_cell, cells_per_block, vis=False, feature_vec=True))
+            for channel in range(feature_img.shape[2]):
+                hog_features.extend(get_hog_features(feature_img[:,:,channel], orient, pixels_per_cell, cells_per_block, vis=False, feature_vec=True))
             hog_features = np.ravel(hog_features)
         else:
-            hog_features = get_hog_features(img[:,:,hog_channel], orient, pixels_per_cell, cells_per_block, vis=False, feature_vec=True)
+            hog_features = get_hog_features(feature_img[:,:,hog_channel], orient, pixels_per_cell, cells_per_block, vis=False, feature_vec=True)
         file_features.append(hog_features)
         # Append the new feature vector to the features list
         features.append(np.concatenate(file_features))
@@ -168,13 +168,13 @@ def search_vehicles_in_windows(img, windows, scaler, clf, cspace='RGB', spatial_
     return hot_windows
 
 # Define a single function that can extract features using hog sub-sampling and make predictions
-def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, cell_per_block=2, spatial_size=32, hist_bins=32, cspace='RGB', hog_channel=-1):
+def find_cars(img, ystart, ystop, scale, scaler, clf, orient=9, pix_per_cell=8, cell_per_block=2, spatial_size=32, hist_bins=32, cspace='RGB', hog_channel=-1):
 
     # Array of bounding boxes where cars were detected
     bboxes = []
 
     draw_img = np.copy(img)
-    #img = img.astype(np.float32)/255
+    img = img.astype(np.float32)/255
 
     img_tosearch = img[ystart:ystop,:,:]
 
@@ -238,7 +238,7 @@ def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, 
             ytop = ypos*pix_per_cell
 
             # Extract the image patch
-            subimg = cv2.resize(ctrans_tosearch[ytop:ytop+window, xleft:xleft+window], (64,64))
+            subimg = ctrans_tosearch[ytop:ytop+window, xleft:xleft+window]
 
             # Get color features
             spatial_features = bin_spatial(subimg, size=spatial_size)
@@ -247,8 +247,8 @@ def find_cars(img, ystart, ystop, scale, clf, scaler, orient=9, pix_per_cell=8, 
             # Scale features and make a prediction
             test_features = scaler.transform(np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1))
             test_prediction = clf.predict(test_features)
-            test_confidence = clf.decision_function(test_features)
-
+            #test_confidence = clf.decision_function(test_features)
+        
             if test_prediction == 1:
                 xbox_left = np.int(xleft*scale)
                 ytop_draw = np.int(ytop*scale)
@@ -328,9 +328,9 @@ if __name__ == '__main__':
         vehicles = []
         non_vehicles = []
         for file in glob.glob('vehicles/**/*.png', recursive=True):
-            vehicles.append(cv2.cvtColor(cv2.imread(file), cv2.COLOR_BGR2RGB))
+            vehicles.append(mpimg.imread(file))
         for file in glob.glob('non-vehicles/**/*.png', recursive=True):
-            non_vehicles.append(cv2.cvtColor(cv2.imread(file), cv2.COLOR_BGR2RGB))
+            non_vehicles.append(mpimg.imread(file))
 
         print("{} car images".format(len(vehicles)))
         print("{} non-car images".format(len(non_vehicles)))
@@ -377,22 +377,20 @@ if __name__ == '__main__':
     for file in os.listdir(test_image_dir):
         # Read image
         print("Finding vehicles on {}".format(file))
-        img = cv2.cvtColor(cv2.imread(test_image_dir + file), cv2.COLOR_BGR2RGB)
+        img = mpimg.imread(test_image_dir + file)
 
         # Retrieve windows where cars have been detected
         windows = []
-        windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, 640], xy_window=(128, 128), xy_overlap=(0.5, 0.5)))
-        windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, 600], xy_window=(96, 96), xy_overlap=(0.5, 0.5)))
-        windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[390, 540], xy_window=(80, 80), xy_overlap=(0.5, 0.5)))
+        windows.append(find_cars(img, 400, 460, 0.5, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 560, 1.5, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 600, 2.0, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
         windows = [item for sublist in windows for item in sublist]
 
-        hot_windows = search_vehicles_in_windows(img, windows, scaler, clf, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
-
-        img_bboxes = draw_boxes(img, hot_windows, color='random')
+        img_bboxes = draw_boxes(img, windows, color='random')
 
         # Build a heat map from the detected boxes
         heat = np.zeros_like(img[:,:,0]).astype(np.float)
-        heat = add_heat(heat, hot_windows)
+        heat = add_heat(heat, windows)
 
         # Apply threshold to help remove false positives
         heat = apply_threshold(heat, 1)
@@ -417,9 +415,8 @@ if __name__ == '__main__':
     if not os.path.isdir(output_video_dir):
         os.makedirs(output_video_dir)
 
-    #for file_name in os.listdir(test_video_dir):
-    file_name = 'test_video.mp4'
-    print("\nRun pipeline for '" + file_name + "'...")
-    video_input = VideoFileClip(test_video_dir + file_name)
-    processed_video = video_input.fl_image(lambda x: process_img(x, scaler, clf, args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
-    processed_video.write_videofile(output_video_dir + file_name, audio=False)
+    '''for file_name in os.listdir(test_video_dir):
+        print("\nRun pipeline for '" + file_name + "'...")
+        video_input = VideoFileClip(test_video_dir + file_name)
+        processed_video = video_input.fl_image(lambda x: process_img(x, scaler, clf, args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
+        processed_video.write_videofile(output_video_dir + file_name, audio=False)'''
