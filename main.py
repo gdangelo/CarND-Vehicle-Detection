@@ -12,6 +12,7 @@ from sklearn.svm import SVC
 from sklearn.externals import joblib
 from skimage.feature import hog
 from scipy.ndimage.measurements import label
+from moviepy.editor import VideoFileClip
 
 # Define a function to compute binned color features
 def bin_spatial(img, size=32):
@@ -280,6 +281,29 @@ def save_figure(img, path, name):
     plt.imshow(img)
     plt.savefig(path+'/'+name)
 
+def process_img(img, scaler, clf, cspace, spatial_size, hist_bins, orient, pixels_per_cell, cells_per_block, hog_channel):
+    # Retrieve windows where cars have been detected
+    windows = []
+    windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, 640], xy_window=(128, 128), xy_overlap=(0.5, 0.5)))
+    windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, 600], xy_window=(96, 96), xy_overlap=(0.5, 0.5)))
+    windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[390, 540], xy_window=(80, 80), xy_overlap=(0.5, 0.5)))
+    windows = [item for sublist in windows for item in sublist]
+
+    hot_windows = search_vehicles_in_windows(img, windows, scaler, clf, cspace=cspace, spatial_size=spatial_size, hist_bins=hist_bins, orient=orient, pixels_per_cell=pixels_per_cell, cells_per_block=cells_per_block, hog_channel=hog_channel)
+
+    # Build a heat map from the detected boxes
+    heat = np.zeros_like(img[:,:,0]).astype(np.float)
+    heat = add_heat(heat, hot_windows)
+
+    # Apply threshold to help remove false positives
+    heat = apply_threshold(heat, 1)
+    heatmap = np.clip(heat, 0, 255) # clip values from 0 to 255
+
+    # Find final boxes from heatmap using label function
+    labels = label(heatmap)
+    result = draw_labeled_bboxes(np.copy(img), labels)
+    return result
+
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Detect vehicles on images/videos', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -294,7 +318,7 @@ if __name__ == '__main__':
 
     if os.path.exists('classifier.pkl') and os.path.exists('scaler.pkl'):
         # Retrieve the saved model that has already been trained
-        print('Load classifier from disk...')
+        print('Load classifier from disk...\n')
         clf = joblib.load('classifier.pkl')
         scaler = joblib.load('scaler.pkl')
 
@@ -386,3 +410,16 @@ if __name__ == '__main__':
         plt.savefig(output_image_dir+file.split('.')[0]+'_car_position.jpg')
         plt.imshow(heatmap, cmap='hot')
         plt.savefig(output_image_dir+file.split('.')[0]+'_heatmap.jpg')
+
+    # Run the pipeline on each test video
+    test_video_dir = './test_videos/'
+    output_video_dir = './output_videos/'
+    if not os.path.isdir(output_video_dir):
+        os.makedirs(output_video_dir)
+
+    #for file_name in os.listdir(test_video_dir):
+    file_name = 'test_video.mp4'
+    print("\nRun pipeline for '" + file_name + "'...")
+    video_input = VideoFileClip(test_video_dir + file_name)
+    processed_video = video_input.fl_image(lambda x: process_img(x, scaler, clf, args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
+    processed_video.write_videofile(output_video_dir + file_name, audio=False)
