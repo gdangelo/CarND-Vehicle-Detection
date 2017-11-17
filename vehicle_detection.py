@@ -4,6 +4,8 @@ import cv2
 import argparse
 import time
 import numpy as np
+import matplotlib
+matplotlib.use('agg')
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
@@ -13,6 +15,7 @@ from sklearn.externals import joblib
 from skimage.feature import hog
 from scipy.ndimage.measurements import label
 from moviepy.editor import VideoFileClip
+
 
 # Define a function to compute binned color features
 def bin_spatial(img, size=32):
@@ -247,9 +250,9 @@ def find_cars(img, ystart, ystop, scale, scaler, clf, orient=9, pix_per_cell=8, 
             # Scale features and make a prediction
             test_features = scaler.transform(np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1))
             test_prediction = clf.predict(test_features)
-            #test_confidence = clf.decision_function(test_features)
-        
-            if test_prediction == 1:
+            test_confidence = clf.decision_function(test_features)
+
+            if test_prediction == 1 and test_confidence > 0.4:
                 xbox_left = np.int(xleft*scale)
                 ytop_draw = np.int(ytop*scale)
                 win_draw = np.int(window*scale)
@@ -284,16 +287,15 @@ def save_figure(img, path, name):
 def process_img(img, scaler, clf, cspace, spatial_size, hist_bins, orient, pixels_per_cell, cells_per_block, hog_channel):
     # Retrieve windows where cars have been detected
     windows = []
-    windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, 640], xy_window=(128, 128), xy_overlap=(0.5, 0.5)))
-    windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[400, 600], xy_window=(96, 96), xy_overlap=(0.5, 0.5)))
-    windows.append(sliding_windows(img, x_start_stop=[None, None], y_start_stop=[390, 540], xy_window=(80, 80), xy_overlap=(0.5, 0.5)))
+    windows.append(find_cars(img, 400, 490, 0.7, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+    windows.append(find_cars(img, 400, 560, 1.0, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+    windows.append(find_cars(img, 400, 560, 1.5, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+    windows.append(find_cars(img, 400, 660, 2.0, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
     windows = [item for sublist in windows for item in sublist]
-
-    hot_windows = search_vehicles_in_windows(img, windows, scaler, clf, cspace=cspace, spatial_size=spatial_size, hist_bins=hist_bins, orient=orient, pixels_per_cell=pixels_per_cell, cells_per_block=cells_per_block, hog_channel=hog_channel)
 
     # Build a heat map from the detected boxes
     heat = np.zeros_like(img[:,:,0]).astype(np.float)
-    heat = add_heat(heat, hot_windows)
+    heat = add_heat(heat, windows)
 
     # Apply threshold to help remove false positives
     heat = apply_threshold(heat, 1)
@@ -303,6 +305,54 @@ def process_img(img, scaler, clf, cspace, spatial_size, hist_bins, orient, pixel
     labels = label(heatmap)
     result = draw_labeled_bboxes(np.copy(img), labels)
     return result
+
+def train_svc(cspace, spatial_size, hist_bins, orient, pixels_per_cell, cells_per_block, hog_channel):
+    # Read in car and non-car images
+    print("Read files in vehicles and non vehicles datasets...")
+    vehicles = []
+    non_vehicles = []
+    for file in glob.glob('vehicles/**/*.png', recursive=True):
+        vehicles.append(mpimg.imread(file))
+    for file in glob.glob('non-vehicles/**/*.png', recursive=True):
+        non_vehicles.append(mpimg.imread(file))
+
+    print("{} car images".format(len(vehicles)))
+    print("{} non-car images".format(len(non_vehicles)))
+
+    # Extract features from vehicles and non vehicles dataset
+    print("\nExtract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}\n".format(cspace, spatial_size, hist_bins, orient, pixels_per_cell, cells_per_block, hog_channel))
+    vehicles_features = extract_features(vehicles, cspace=cspace, spatial_size=spatial_size, hist_bins=hist_bins, orient=orient, pixels_per_cell=pixels_per_cell, cells_per_block=cells_per_block, hog_channel=hog_channel)
+    non_vehicles_features = extract_features(non_vehicles, cspace=cspace, spatial_size=spatial_size, hist_bins=hist_bins, orient=orient, pixels_per_cell=pixels_per_cell, cells_per_block=cells_per_block, hog_channel=hog_channel)
+
+    # Create an array stack of feature vectors
+    X = np.vstack((vehicles_features, non_vehicles_features)).astype(np.float64)
+    # Standardize features by removing the mean and scaling to unit variance
+    scaler = StandardScaler()
+    scaler.fit(X)
+    joblib.dump(scaler, 'scaler.pkl') # save to reuse it later
+    X_scaled = scaler.transform(X)
+    # Define the labels vector
+    y = np.hstack((np.ones(len(vehicles_features)), np.zeros(len(non_vehicles_features))))
+    # Split up data into randomized training and test sets
+    rand_state = np.random.randint(0, 100)
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=rand_state)
+    # Use a linear SVC as classifier
+    clf = SVC()
+    t = time.time()
+    clf.fit(X_train, y_train)
+    joblib.dump(clf, 'classifier.pkl') # save to reuse it later
+    t2 = time.time()
+    print("{0:.2f} seconds to train SVC".format(t2-t))
+    print("Test Accuracy of SVC = {0:.3f}".format(clf.score(X_test, y_test)))
+    # Check the prediction time for a single sample
+    t = time.time()
+    n_predict = 10
+    print("My SVC predictions: ", clf.predict(X_test[:n_predict]))
+    print("The right labels: ", y_test[:n_predict])
+    t2 = time.time()
+    print("{0:.2f} seconds to predict {1:} samples\n".format(t2-t, n_predict))
+
+    return scaler, clf
 
 if __name__ == '__main__':
     # Parse command line arguments
@@ -321,55 +371,12 @@ if __name__ == '__main__':
         print('Load classifier from disk...\n')
         clf = joblib.load('classifier.pkl')
         scaler = joblib.load('scaler.pkl')
-
     else:
-        # Read in car and non-car images
-        print("Read files in vehicles and non vehicles datasets...")
-        vehicles = []
-        non_vehicles = []
-        for file in glob.glob('vehicles/**/*.png', recursive=True):
-            vehicles.append(mpimg.imread(file))
-        for file in glob.glob('non-vehicles/**/*.png', recursive=True):
-            non_vehicles.append(mpimg.imread(file))
-
-        print("{} car images".format(len(vehicles)))
-        print("{} non-car images".format(len(non_vehicles)))
-
-        # Extract features from vehicles and non vehicles dataset
-        print("\nExtract features from datasets with:\n- cspace={}\n- spatial_size={}\n- hist_bins={}\n- orient={}\n- pixels_per_cell={}\n- cells_per_block={}\n- hog_channel={}\n".format(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
-        vehicles_features = extract_features(vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
-        non_vehicles_features = extract_features(non_vehicles, cspace=args.cspace, spatial_size=args.spatial_size, hist_bins=args.hist_bins, orient=args.orient, pixels_per_cell=args.pixels_per_cell, cells_per_block=args.cells_per_block, hog_channel=args.hog_channel)
-
-        # Create an array stack of feature vectors
-        X = np.vstack((vehicles_features, non_vehicles_features)).astype(np.float64)
-        # Standardize features by removing the mean and scaling to unit variance
-        scaler = StandardScaler()
-        scaler.fit(X)
-        joblib.dump(scaler, 'scaler.pkl') # save to reuse it later
-        X_scaled = scaler.transform(X)
-        # Define the labels vector
-        y = np.hstack((np.ones(len(vehicles_features)), np.zeros(len(non_vehicles_features))))
-        # Split up data into randomized training and test sets
-        rand_state = np.random.randint(0, 100)
-        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=rand_state)
-        # Use a linear SVC as classifier
-        clf = SVC()
-        t = time.time()
-        clf.fit(X_train, y_train)
-        joblib.dump(clf, 'classifier.pkl') # save to reuse it later
-        t2 = time.time()
-        print("{0:.2f} seconds to train SVC".format(t2-t))
-        print("Test Accuracy of SVC = {0:.3f}".format(clf.score(X_test, y_test)))
-        # Check the prediction time for a single sample
-        t = time.time()
-        n_predict = 10
-        print("My SVC predictions: ", clf.predict(X_test[:n_predict]))
-        print("The right labels: ", y_test[:n_predict])
-        t2 = time.time()
-        print("{0:.2f} seconds to predict {1:} samples\n".format(t2-t, n_predict))
+        # Train the SVC classifier
+        scaler, clf = train_svc(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel)
 
     # Run the pipeline on each test image
-    test_image_dir = './test_images/'
+    '''test_image_dir = './test_images/'
     output_image_dir = './output_images/'
     if not os.path.isdir(output_image_dir):
         os.makedirs(output_image_dir)
@@ -381,8 +388,9 @@ if __name__ == '__main__':
 
         # Retrieve windows where cars have been detected
         windows = []
-        windows.append(find_cars(img, 400, 480, 0.5, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 490, 0.7, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
         windows.append(find_cars(img, 400, 560, 1.0, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
+        windows.append(find_cars(img, 400, 560, 1.5, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
         windows.append(find_cars(img, 400, 660, 2.0, scaler, clf, args.orient, args.pixels_per_cell, args.cells_per_block, args.spatial_size, args.hist_bins, args.cspace, args.hog_channel))
         windows = [item for sublist in windows for item in sublist]
 
@@ -393,7 +401,7 @@ if __name__ == '__main__':
         heat = add_heat(heat, windows)
 
         # Apply threshold to help remove false positives
-        heat = apply_threshold(heat, 2)
+        heat = apply_threshold(heat, 1)
         heatmap = np.clip(heat, 0, 255) # clip values from 0 to 255
 
         # Find final boxes from heatmap using label function
@@ -409,14 +417,15 @@ if __name__ == '__main__':
         plt.imshow(heatmap, cmap='hot')
         plt.savefig(output_image_dir+file.split('.')[0]+'_heatmap.jpg')
 
-    # Run the pipeline on each test video
+    '''# Run the pipeline on each test video
     test_video_dir = './test_videos/'
     output_video_dir = './output_videos/'
     if not os.path.isdir(output_video_dir):
         os.makedirs(output_video_dir)
 
-    '''for file_name in os.listdir(test_video_dir):
-        print("\nRun pipeline for '" + file_name + "'...")
-        video_input = VideoFileClip(test_video_dir + file_name)
-        processed_video = video_input.fl_image(lambda x: process_img(x, scaler, clf, args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
-        processed_video.write_videofile(output_video_dir + file_name, audio=False)'''
+    #for file_name in os.listdir(test_video_dir):
+    file_name = 'project_video.mp4'
+    print("\nRun pipeline for '" + file_name + "'...")
+    video_input = VideoFileClip(test_video_dir + file_name)
+    processed_video = video_input.fl_image(lambda img: process_img(img, scaler, clf, args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
+    processed_video.write_videofile(output_video_dir + file_name, audio=False)
