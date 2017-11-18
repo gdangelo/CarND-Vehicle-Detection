@@ -376,7 +376,7 @@ if __name__ == '__main__':
         scaler, clf = train_svc(args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel)
 
     # Run the pipeline on each test image
-    '''test_image_dir = './test_images/'
+    test_image_dir = './test_images/'
     output_image_dir = './output_images/'
     if not os.path.isdir(output_image_dir):
         os.makedirs(output_image_dir)
@@ -417,15 +417,14 @@ if __name__ == '__main__':
         plt.imshow(heatmap, cmap='hot')
         plt.savefig(output_image_dir+file.split('.')[0]+'_heatmap.jpg')
 
-    '''# Run the pipeline on each test video
+    # Run the pipeline on each test video
     test_video_dir = './test_videos/'
     output_video_dir = './output_videos/'
     if not os.path.isdir(output_video_dir):
         os.makedirs(output_video_dir)
 
-    #for file_name in os.listdir(test_video_dir):
-    file_name = 'project_video.mp4'
-    print("\nRun pipeline for '" + file_name + "'...")
-    video_input = VideoFileClip(test_video_dir + file_name)
-    processed_video = video_input.fl_image(lambda img: process_img(img, scaler, clf, args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
-    processed_video.write_videofile(output_video_dir + file_name, audio=False)
+    for file_name in os.listdir(test_video_dir):
+        print("\nRun pipeline for '" + file_name + "'...")
+        video_input = VideoFileClip(test_video_dir + file_name)
+        processed_video = video_input.fl_image(lambda img: process_img(img, scaler, clf, args.cspace, args.spatial_size, args.hist_bins, args.orient, args.pixels_per_cell, args.cells_per_block, args.hog_channel))
+        processed_video.write_videofile(output_video_dir + file_name, audio=False)
